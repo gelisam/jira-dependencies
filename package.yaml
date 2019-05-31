@@ -1,0 +1,8 @@
+name: jira-dependencies
+
+executables:
+  jira-dependencies:
+    main: Main.hs
+    source-dirs: src
+    dependencies:
+      - base
