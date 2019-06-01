@@ -1,0 +1,10 @@
+Issue key,Issue id,Outward issue link (Blocks),Outward issue link (Blocks),Outward issue link (Blocks),Outward issue link (Blocks),Outward issue link (Blocks),Outward issue link (Blocks),Outward issue link (Relates),Custom field (Story Points)
+PS-2706,15821,,,,,,,,3.0
+PS-2705,15820,,,,,,,,2.0
+PS-2700,15814,,,,,,,,2.0
+PS-2699,15799,,,,,,,,1.0
+PS-2698,15798,,,,,,,,1.0
+PS-2673,15733,PS-2695,,,,,,PS-2692,2.0
+PS-2672,15732,PS-2698,PS-2699,PS-2700,PS-2705,PS-2678,PS-2671,,0.5
+PS-2671,15731,,,,,,,,3.0
+PS-2670,15730,PS-2706,PS-2694,PS-2673,PS-2671,,,,1.0

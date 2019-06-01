@@ -7,3 +7,6 @@ executables:
     dependencies:
       - base
       - bytestring
+      - cassava
+      - containers
+      - vector
