@@ -6,3 +6,4 @@ executables:
     source-dirs: src
     dependencies:
       - base
+      - bytestring
