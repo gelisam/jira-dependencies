@@ -13,6 +13,8 @@ import qualified Data.Csv as Csv
 import qualified Data.Map as Map
 import qualified Data.Vector as Vector
 
+import AsciiArt
+
 
 type IssueId = String
 
