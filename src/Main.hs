@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, LambdaCase #-}
+{-# LANGUAGE RecordWildCards, LambdaCase, OverloadedStrings #-}
 module Main where
 
 import Data.ByteString.Lazy (ByteString)
@@ -20,18 +20,19 @@ import qualified Dot
 type IssueId = String
 
 data Issue = Issue
-  { blocks      :: [IssueId]
-  , storyPoints :: Double
+  { summary     :: Maybe String
+  , blocks      :: [IssueId]
+  , storyPoints :: Maybe Double
   }
   deriving Show
 
 -- partial if the input not valid csv or doesn't contain the required field "Issue key".
--- fields "Outward issue link (Blocks)" and "Custom field (Story Points)" are
+-- fields "Summary", "Outward issue link (Blocks)" and "Custom field (Story Points)" are
 -- treated specially, but are not mandatory.
 parseIssues :: ByteString -> Map IssueId Issue
 parseIssues inputCsv = Map.fromList
-                  . fmap parseAnnotatedIssue
-                  $ annotatedRows
+                     . fmap parseAnnotatedIssue
+                     $ annotatedRows
   where
     annotatedRows :: [[(String, String)]]
     annotatedRows = case fmap Vector.toList (Csv.decode Csv.NoHeader inputCsv) of
@@ -40,7 +41,8 @@ parseIssues inputCsv = Map.fromList
 
     parseAnnotatedIssue :: [(String, String)] -> (IssueId, Issue)
     parseAnnotatedIssue annotatedRow = ( getIssueId annotatedRow
-                                       , Issue (getBlocks annotatedRow)
+                                       , Issue (getSummary annotatedRow)
+                                               (getBlocks annotatedRow)
                                                (getStoryPoints annotatedRow)
                                        )
 
@@ -48,14 +50,16 @@ parseIssues inputCsv = Map.fromList
     getIssueId = fromJust
                . lookup "Issue key"
 
+    getSummary :: [(String, String)] -> Maybe String
+    getSummary = lookup "Summary"
+
     getBlocks :: [(String, String)] -> [IssueId]
     getBlocks = filter (not . null)
               . fmap snd
               . filter ((== "Outward issue link (Blocks)") . fst)
 
-    getStoryPoints :: [(String, String)] -> Double
-    getStoryPoints = read
-                   . fromMaybe "0"
+    getStoryPoints :: [(String, String)] -> Maybe Double
+    getStoryPoints = fmap read
                    . lookup "Custom field (Story Points)"
 
 
@@ -66,6 +70,10 @@ mkNodeId = fromString
 
 mkNode :: String -> Dot.NodeStatement
 mkNode name = Dot.NodeStatement (mkNodeId name) []
+
+mkLabelledNode :: String -> String -> Dot.NodeStatement
+mkLabelledNode name label = Dot.NodeStatement (mkNodeId name)
+                              [Dot.Attribute "label" (fromString label)]
 
 mkEdge :: String -> String -> Dot.EdgeStatement
 mkEdge name1 name2 = Dot.EdgeStatement
@@ -90,8 +98,11 @@ printGraph = Text.putStrLn . Dot.encode
 
 -- Convert Issues to a DotGraph
 
-toNode :: IssueId -> Dot.NodeStatement
-toNode = mkNode
+toNode :: (IssueId, Issue) -> Dot.NodeStatement
+toNode (issueId, Issue {summary = Nothing}) = mkNode issueId
+toNode (issueId, Issue {summary = Just s}) = mkLabelledNode issueId label
+  where
+    label = issueId ++ "\n" ++ s
 
 toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
 toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
@@ -99,7 +110,7 @@ toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
 toGraph :: Map IssueId Issue -> Dot.DotGraph
 toGraph issues = mkGraph nodes edges
   where
-    nodes = fmap toNode (Map.keys issues)
+    nodes = fmap toNode (Map.toList issues)
     edges = concatMap toEdges (Map.toList issues)
 
 
