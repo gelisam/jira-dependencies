@@ -25,4 +25,4 @@ manual work in order to export the data from JIRA first.
 The output should look like this (but with the issue Summary if you included it
 in the `.csv`):
 
-    ![A graph of dependencies](example-output.png "example output")
+![A graph of dependencies](example-output.png "example output")
