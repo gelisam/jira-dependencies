@@ -2,13 +2,14 @@
 module Main where
 
 import Data.ByteString.Lazy (ByteString)
-import Data.Foldable (for_)
+import Data.Foldable (for_, toList)
 import Data.Map (Map)
 import Data.Maybe (fromJust, fromMaybe)
 import Data.String (fromString)
 import Data.Vector (Vector)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure)
+import Text.Read (readMaybe)
 import qualified Data.ByteString.Lazy as ByteString
 import qualified Data.Csv as Csv
 import qualified Data.Map as Map
@@ -59,8 +60,9 @@ parseIssues inputCsv = Map.fromList
               . filter ((== "Outward issue link (Blocks)") . fst)
 
     getStoryPoints :: [(String, String)] -> Maybe Double
-    getStoryPoints = fmap read
-                   . lookup "Custom field (Story Points)"
+    getStoryPoints fields = do
+      x <- lookup "Custom field (Story Points)" fields
+      readMaybe x
 
 
 -- Simpler API for creating a DotGraph
@@ -98,11 +100,21 @@ printGraph = Text.putStrLn . Dot.encode
 
 -- Convert Issues to a DotGraph
 
+showDouble :: Double -> String
+showDouble x
+  | fromIntegral (round x) == x
+    = show (round x)
+  | otherwise
+    = show x
+
 toNode :: (IssueId, Issue) -> Dot.NodeStatement
-toNode (issueId, Issue {summary = Nothing}) = mkNode issueId
-toNode (issueId, Issue {summary = Just s}) = mkLabelledNode issueId label
+toNode (issueId, Issue {..}) = mkLabelledNode issueId label
   where
-    label = issueId ++ "\n" ++ s
+    label = unlines
+      $ [unwords ( [issueId]
+                ++ ["(" ++ showDouble x ++ ")" | x <- toList storyPoints]
+                 )]
+     ++ [x | x <- toList summary]
 
 toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
 toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
