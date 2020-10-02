@@ -20,7 +20,7 @@ manual work in order to export the data from JIRA first.
 2.  Click `Export` / `CSV (All Fields)` / `Comma (,)` to download a `.csv` file.
 3.  Run `jira-dependencies` on that file:
 
-    stack run jira-dependencies example-input.csv | dot -Tpng > example-output.png
+        stack run jira-dependencies example-input.csv | dot -Tpng > example-output.png
 
 The output should look like this (but with the issue Summary if you included it
 in the `.csv`):
