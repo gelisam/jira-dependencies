@@ -1,4 +1,5 @@
 resolver: lts-15.6
 packages:
 - '.'
-extra-deps: []
+extra-deps:
+- dot-0.3

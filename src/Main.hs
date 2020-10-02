@@ -1,19 +1,20 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards, LambdaCase #-}
 module Main where
 
 import Data.ByteString.Lazy (ByteString)
 import Data.Foldable (for_)
 import Data.Map (Map)
 import Data.Maybe (fromJust, fromMaybe)
+import Data.String (fromString)
 import Data.Vector (Vector)
 import System.Environment (getArgs, getProgName)
 import System.Exit (exitFailure)
 import qualified Data.ByteString.Lazy as ByteString
 import qualified Data.Csv as Csv
 import qualified Data.Map as Map
+import qualified Data.Text.IO as Text
 import qualified Data.Vector as Vector
-
-import AsciiArt
+import qualified Dot
 
 
 type IssueId = String
@@ -57,12 +58,57 @@ parseIssues inputCsv = Map.fromList
                    . fromMaybe "0"
                    . lookup "Custom field (Story Points)"
 
+
+-- Simpler API for creating a DotGraph
+
+mkNodeId :: String -> Dot.NodeId
+mkNodeId = fromString
+
+mkNode :: String -> Dot.NodeStatement
+mkNode name = Dot.NodeStatement (mkNodeId name) []
+
+mkEdge :: String -> String -> Dot.EdgeStatement
+mkEdge name1 name2 = Dot.EdgeStatement
+                       (Dot.ListTwo
+                         (Dot.EdgeNode (mkNodeId name1))
+                         (Dot.EdgeNode (mkNodeId name2))
+                         [])
+                         []
+
+mkGraph :: [Dot.NodeStatement] -> [Dot.EdgeStatement] -> Dot.DotGraph
+mkGraph nodes edges = Dot.DotGraph
+                        Dot.Strict
+                        Dot.Directed
+                        Nothing
+                        ( (Dot.StatementNode <$> nodes)
+                       ++ (Dot.StatementEdge <$> edges)
+                        )
+
+printGraph :: Dot.DotGraph -> IO ()
+printGraph = Text.putStrLn . Dot.encode
+
+
+-- Convert Issues to a DotGraph
+
+toNode :: IssueId -> Dot.NodeStatement
+toNode = mkNode
+
+toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
+toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
+
+toGraph :: Map IssueId Issue -> Dot.DotGraph
+toGraph issues = mkGraph nodes edges
+  where
+    nodes = fmap toNode (Map.keys issues)
+    edges = concatMap toEdges (Map.toList issues)
+
+
 main :: IO ()
 main = do
   getArgs >>= \case
     [inputFile] -> do
       issues <- parseIssues <$> ByteString.readFile inputFile
-      print issues
+      printGraph $ toGraph issues
     _ -> do
       progName <- getProgName
       putStrLn $ "usage: " ++ progName ++ " example-input.csv"

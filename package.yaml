@@ -9,4 +9,6 @@ executables:
       - bytestring
       - cassava
       - containers
+      - dot
+      - text
       - vector
