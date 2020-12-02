@@ -24,6 +24,7 @@ data Issue = Issue
   { summary     :: Maybe String
   , blocks      :: [IssueId]
   , storyPoints :: Maybe Double
+  , status      :: Maybe String
   }
   deriving Show
 
@@ -45,6 +46,7 @@ parseIssues inputCsv = Map.fromList
                                        , Issue (getSummary annotatedRow)
                                                (getBlocks annotatedRow)
                                                (getStoryPoints annotatedRow)
+                                               (getStatus annotatedRow)
                                        )
 
     getIssueId :: [(String, String)] -> IssueId
@@ -64,6 +66,9 @@ parseIssues inputCsv = Map.fromList
       x <- lookup "Custom field (Story Points)" fields
       readMaybe x
 
+    getStatus :: [(String, String)] -> Maybe String
+    getStatus = lookup "Status"
+
 
 -- Simpler API for creating a DotGraph
 
@@ -73,9 +78,12 @@ mkNodeId = fromString
 mkNode :: String -> Dot.NodeStatement
 mkNode name = Dot.NodeStatement (mkNodeId name) []
 
-mkLabelledNode :: String -> String -> Dot.NodeStatement
-mkLabelledNode name label = Dot.NodeStatement (mkNodeId name)
-                              [Dot.Attribute "label" (fromString label)]
+mkLabelledNode :: String -> String -> String -> Dot.NodeStatement
+mkLabelledNode name label color = Dot.NodeStatement (mkNodeId name)
+                                    [ Dot.Attribute "label" (fromString label)
+                                    , Dot.Attribute "style" (fromString "filled")
+                                    , Dot.Attribute "fillcolor" (fromString color)
+                                    ]
 
 mkEdge :: String -> String -> Dot.EdgeStatement
 mkEdge name1 name2 = Dot.EdgeStatement
@@ -108,13 +116,25 @@ showDouble x
     = show x
 
 toNode :: (IssueId, Issue) -> Dot.NodeStatement
-toNode (issueId, Issue {..}) = mkLabelledNode issueId label
+toNode (issueId, Issue {..}) = mkLabelledNode issueId label color
   where
     label = unlines
       $ [unwords ( [issueId]
                 ++ ["(" ++ showDouble x ++ ")" | x <- toList storyPoints]
                  )]
      ++ [x | x <- toList summary]
+
+    color = case status of
+      Nothing
+        -> "white"
+      Just "To Do"
+        -> "white"
+      Just "Done"
+        -> "darkolivegreen1"
+      Just "Won't Fix"
+        -> "gainsboro"
+      Just _  -- probably "In Progress" or "QA"
+        -> "#f1ffdb"  -- between white and darkolivegreen1
 
 toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
 toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
