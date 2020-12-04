@@ -25,6 +25,8 @@ data Issue = Issue
   , blocks      :: [IssueId]
   , storyPoints :: Maybe Double
   , status      :: Maybe String
+  , issueType   :: Maybe String
+  , labels      :: [String]
   }
   deriving Show
 
@@ -47,6 +49,8 @@ parseIssues inputCsv = Map.fromList
                                                (getBlocks annotatedRow)
                                                (getStoryPoints annotatedRow)
                                                (getStatus annotatedRow)
+                                               (getIssueType annotatedRow)
+                                               (getLabels annotatedRow)
                                        )
 
     getIssueId :: [(String, String)] -> IssueId
@@ -69,6 +73,13 @@ parseIssues inputCsv = Map.fromList
     getStatus :: [(String, String)] -> Maybe String
     getStatus = lookup "Status"
 
+    getIssueType :: [(String, String)] -> Maybe String
+    getIssueType = lookup "Issue Type"
+
+    getLabels :: [(String, String)] -> [String]
+    getLabels = fmap snd
+              . filter ((== "Labels") . fst)
+
 
 -- Simpler API for creating a DotGraph
 
@@ -78,12 +89,14 @@ mkNodeId = fromString
 mkNode :: String -> Dot.NodeStatement
 mkNode name = Dot.NodeStatement (mkNodeId name) []
 
-mkLabelledNode :: String -> String -> String -> Dot.NodeStatement
-mkLabelledNode name label color = Dot.NodeStatement (mkNodeId name)
-                                    [ Dot.Attribute "label" (fromString label)
-                                    , Dot.Attribute "style" (fromString "filled")
-                                    , Dot.Attribute "fillcolor" (fromString color)
-                                    ]
+mkLabelledNode :: String -> String -> String -> String -> Double -> Dot.NodeStatement
+mkLabelledNode name label color style penwidth
+  = Dot.NodeStatement (mkNodeId name)
+      [ Dot.Attribute "label" (fromString label)
+      , Dot.Attribute "style" (fromString ("filled," ++ style))
+      , Dot.Attribute "fillcolor" (fromString color)
+      , Dot.Attribute "penwidth" (fromString (show penwidth))
+      ]
 
 mkEdge :: String -> String -> Dot.EdgeStatement
 mkEdge name1 name2 = Dot.EdgeStatement
@@ -116,7 +129,7 @@ showDouble x
     = show x
 
 toNode :: (IssueId, Issue) -> Dot.NodeStatement
-toNode (issueId, Issue {..}) = mkLabelledNode issueId label color
+toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
   where
     label = unlines
       $ [unwords ( [issueId]
@@ -135,6 +148,15 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color
         -> "gainsboro"
       Just _  -- probably "In Progress" or "QA"
         -> "#f1ffdb"  -- between white and darkolivegreen1
+
+    style = if "stretch-goal" `elem` labels
+            then "dashed"
+            else "solid"
+
+    penwidth = case issueType of
+      Just "Story"
+        -> 3.0
+      _ -> 1.0
 
 toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
 toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
