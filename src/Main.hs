@@ -2,8 +2,10 @@
 module Main where
 
 import Data.ByteString.Lazy (ByteString)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable (for_, toList)
-import Data.Map (Map)
+import Data.Map (Map, (!))
+import Data.Set (Set)
 import Data.Maybe (fromJust, fromMaybe)
 import Data.String (fromString)
 import Data.Vector (Vector)
@@ -13,6 +15,7 @@ import Text.Read (readMaybe)
 import qualified Data.ByteString.Lazy as ByteString
 import qualified Data.Csv as Csv
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Text.IO as Text
 import qualified Data.Vector as Vector
 import qualified Dot
@@ -27,6 +30,7 @@ data Issue = Issue
   , status      :: Maybe String
   , issueType   :: Maybe String
   , labels      :: [String]
+  , dummy       :: Bool
   }
   deriving Show
 
@@ -51,6 +55,7 @@ parseIssues inputCsv = Map.fromList
                                                (getStatus annotatedRow)
                                                (getIssueType annotatedRow)
                                                (getLabels annotatedRow)
+                                               False
                                        )
 
     getIssueId :: [(String, String)] -> IssueId
@@ -131,11 +136,15 @@ showDouble x
 toNode :: (IssueId, Issue) -> Dot.NodeStatement
 toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
   where
-    label = unlines
-      $ [unwords ( [issueId]
-                ++ ["(" ++ showDouble x ++ ")" | x <- toList storyPoints]
-                 )]
-     ++ [x | x <- toList summary]
+    label
+      | dummy
+        = ""
+      | otherwise
+        = unlines
+        $ [unwords ( [issueId]
+                  ++ ["(" ++ showDouble x ++ ")" | x <- toList storyPoints]
+                   )]
+       ++ [x | x <- toList summary]
 
     color = case status of
       Nothing
@@ -168,12 +177,58 @@ toGraph issues = mkGraph nodes edges
     edges = concatMap toEdges (Map.toList issues)
 
 
+addEdge :: (IssueId, IssueId) -> Map IssueId Issue -> Map IssueId Issue
+addEdge (from, to) = Map.adjust (\issue -> issue {blocks = to : blocks issue}) from
+
+-- The tasks which are ready to start are those whose blocking tasks are
+-- completed (marked in green). This makes it difficult to see the tasks with
+-- in-degree zero, which are ready to be started but do not have green above
+-- them. So let's add a dummy green node above them.
+markInitialNodes :: Map IssueId Issue -> Map IssueId Issue
+markInitialNodes g = dummyNodes
+                  <> foldr addEdge g dummyEdges
+  where
+    potentialNodes :: Map IssueId Issue
+    potentialNodes = Map.filter (\(Issue {..}) -> status `elem` [Nothing, Just "To Do"]) g
+
+    blockedNodes :: Set IssueId
+    blockedNodes = Set.unions $ fmap (Set.fromList . blocks) g
+
+    initialNodes :: Map IssueId Issue
+    initialNodes = potentialNodes `Map.withoutKeys` blockedNodes
+
+    mkDummyId :: IssueId -> IssueId
+    mkDummyId = ("before-" ++)
+
+    mkDummyNode :: (IssueId, Issue) -> (IssueId, Issue)
+    mkDummyNode (issueId, Issue {..})
+      = ( mkDummyId issueId
+        , Issue
+          { summary     = Nothing
+          , blocks      = [issueId]
+          , storyPoints = Nothing
+          , status      = Just "Done"
+          , issueType   = Nothing
+          , labels      = labels
+          , dummy       = True
+          }
+        )
+
+    mkDummyEdge :: IssueId -> (IssueId, IssueId)
+    mkDummyEdge issueId = (mkDummyId issueId, issueId)
+
+    dummyNodes :: Map IssueId Issue
+    dummyNodes = Map.fromList $ fmap mkDummyNode $ Map.toList initialNodes
+
+    dummyEdges :: [(IssueId, IssueId)]
+    dummyEdges = fmap mkDummyEdge $ Map.keys initialNodes
+
 main :: IO ()
 main = do
   getArgs >>= \case
     [inputFile] -> do
       issues <- parseIssues <$> ByteString.readFile inputFile
-      printGraph $ toGraph issues
+      printGraph $ toGraph $ markInitialNodes issues
     _ -> do
       progName <- getProgName
       putStrLn $ "usage: " ++ progName ++ " example-input.csv"
