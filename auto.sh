@@ -1,10 +1,19 @@
 #!/bin/bash
 set -e
 
-BASENAME="$1"
+EPIC="$1"
+BASENAME="$2"
 
-if [ "$BASENAME" ]; then
-  mv ~/Downloads/Jira*.csv "$BASENAME.csv" 2> /dev/null || true
+if [ -n "$EPIC" -a -n "$BASENAME" ]; then
+  if [ -f p ]; then
+    JIRA_URL="$(cat jira_url)"
+    PASSWORD="$(ghc -e 'import Prelude' -e 'import Data.Char' -e 'interact (fmap (chr . read) . words)' < p)"
+    curl -u gelisam:"$PASSWORD" -X GET -H "Content-Type: application/json" \
+      "${JIRA_URL}/sr/jira.issueviews:searchrequest-csv-all-fields/temp/SearchRequest.csv?jqlQuery=%22Epic+Link%22+%3D+$EPIC&delimiter=," > "$BASENAME.csv"
+  else
+    mv ~/Downloads/Jira*.csv "$BASENAME.csv" 2> /dev/null || true
+  fi
+
   jira-dependencies "$BASENAME.csv" > "$BASENAME.dot"
   dot -Tpng -Granksep=1 "$BASENAME.dot" | pngtopnm > "auto-top.pnm"
 
@@ -13,7 +22,7 @@ if [ "$BASENAME" ]; then
     LEFT_DATE="2020-12-03"
     RIGHT_PX="1171"
     RIGHT_DATE="2021-02-10"
-    #CURRENT_DATE="2021-01-26"
+    #CURRENT_DATE="2021-01-02"
     LEFT_YYYY="$(echo "$LEFT_DATE" | cut -d'-' -f1)"
     LEFT_MM="$(echo "$LEFT_DATE" | cut -d'-' -f2)"
     LEFT_DD="$(echo "$LEFT_DATE" | cut -d'-' -f3)"
@@ -42,6 +51,6 @@ if [ "$BASENAME" ]; then
     pnmtopng > "$BASENAME.png"
   imgcat "$BASENAME.png"
 else
-  echo "usage: $0 BASENAME"
+  echo "usage: $0 PS-12345 BASENAME"
   exit 1
 fi
