@@ -144,7 +144,22 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
         $ [unwords ( [issueId]
                   ++ ["(" ++ showDouble x ++ ")" | x <- toList storyPoints]
                    )]
-       ++ [x | x <- toList summary]
+       ++ maybe [] (wrapText 30) summary
+
+    wrapText :: Int -> String -> [String]
+    wrapText charLimit = go [] . words
+      where
+        go :: [String] -> [String] -> [String]
+        go [] [] = []
+        go line [] = [unwords line]
+        go [] (word:words)
+          = go [word] words
+        go line (word:words)
+          = let line' = line ++ [word]
+                charLength = length (unwords line')
+            in if charLength > charLimit
+               then unwords line : go [] (word:words)
+               else go line' words
 
     color = case status of
       Nothing
