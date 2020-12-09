@@ -1,5 +1,6 @@
 Issue key,Issue Type,Status,Outward issue link (Blocks)
 Done,Task,Done,In Progress
+Won't Fix,Task,Won't Fix,In Progress
 In Progress,Task,In Progress,Todo (Story points)
 Todo (Story points),Task,To Do,Story
 Story,Story,To Do
