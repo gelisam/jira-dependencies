@@ -173,7 +173,7 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
       Just _  -- probably "In Progress" or "QA"
         -> "#f1ffdb"  -- between white and darkolivegreen1
 
-    style = if "stretch-goal" `elem` labels
+    style = if "stretch-goal" `elem` labels || issueType == Just "Tech Debt"
             then "dashed"
             else "solid"
 
