@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-EPIC="$1"
-BASENAME="$2"
+EPIC="$1"; shift
+BASENAME="$1"; shift
 
 if [ -n "$EPIC" -a -n "$BASENAME" ]; then
   if [ -f p ]; then
@@ -14,7 +14,12 @@ if [ -n "$EPIC" -a -n "$BASENAME" ]; then
     mv ~/Downloads/Jira*.csv "$BASENAME.csv" 2> /dev/null || true
   fi
 
-  jira-dependencies "$BASENAME.csv" > "$BASENAME.dot"
+  jira-dependencies "$BASENAME.csv" > "auto.dot"
+  if [ "$1" ]; then
+    cat "auto.dot" | dot-reverse | dot-closure "$@" | dot-reverse > "$BASENAME.dot"
+  else
+    cat "auto.dot" > "$BASENAME.dot"
+  fi
   dot -Tpng -Granksep=1 "$BASENAME.dot" | pngtopnm > "auto-top.pnm"
 
   if [ -f "calendar.png" ]; then
