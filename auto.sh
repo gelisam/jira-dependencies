@@ -55,6 +55,17 @@ if [ -n "$EPIC" -a -n "$BASENAME" ]; then
   pnmcat -topbottom -jleft auto-top.pnm auto-bottom.pnm | \
     pnmtopng > "$BASENAME.png"
   imgcat "$BASENAME.png"
+
+  TODO="$(cat "$BASENAME.dot" | grep 'style="filled,solid",fillcolor=white,penwidth="1.0"' | wc -l | tr -d ' \t')"
+  IN_PROGRESS="$(cat "$BASENAME.dot" | grep 'style="filled,solid",fillcolor="#f1ffdb",penwidth="1.0"' | wc -l | tr -d ' \t')"
+  DONE="$(cat "$BASENAME.dot" | grep -v 'label=""' | grep 'style="filled,solid",fillcolor=darkolivegreen1,penwidth="1.0"' | wc -l | tr -d ' \t')"
+  WORK_DONE=$(( $DONE - 2 ))
+  TOTAL=$(( $TODO + $IN_PROGRESS + $WORK_DONE ))
+  OPTIMISTIC=$(( $IN_PROGRESS + $WORK_DONE ))
+  echo "$(( $WORK_DONE * 100 / $TOTAL))-$(( $OPTIMISTIC * 100 / $TOTAL ))% ${WORK_DONE}-${OPTIMISTIC}/${TOTAL}"
+  #[style="filled,solid",fillcolor="#f1ffdb",penwidth="1.0"];
+  #[style="filled,solid",fillcolor=darkolivegreen1,penwidth="1.0"];
+
 else
   echo "usage: $0 PS-12345 BASENAME"
   exit 1
