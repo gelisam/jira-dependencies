@@ -1,0 +1,5 @@
+Issue key,Issue Type,Status,Outward issue link (Blocks)
+Done,Task,Done,In Progress
+In Progress,Task,In Progress,Todo Later
+Todo First,Task,ToDo,Todo Later
+Todo Later,Task,ToDo
