@@ -164,7 +164,7 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
     color = case status of
       Nothing
         -> "white"
-      Just "To Do"
+      Just "ToDo"
         -> "white"
       Just "Done"
         -> "darkolivegreen1"
@@ -204,7 +204,7 @@ markInitialNodes g = dummyNodes
                   <> foldr addEdge g dummyEdges
   where
     potentialNodes :: Map IssueId Issue
-    potentialNodes = Map.filter (\(Issue {..}) -> status `elem` [Nothing, Just "To Do"]) g
+    potentialNodes = Map.filter (\(Issue {..}) -> status `elem` [Nothing, Just "ToDo"]) g
 
     blockedNodes :: Set IssueId
     blockedNodes = Set.unions $ fmap (Set.fromList . blocks) g

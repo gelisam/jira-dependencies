@@ -1,36 +1,39 @@
 #!/bin/bash
 set -e
 
-EPIC="$1"; shift
-BASENAME="$1"; shift
+#EPIC="$1"; shift
+#BASENAME="$1"; shift
+
+EPIC=EPIC
+BASENAME=example
 
 if [ -n "$EPIC" -a -n "$BASENAME" ]; then
-  if [ -f p ]; then
-    JIRA_URL="$(cat jira_url)"
-    PASSWORD="$(ghc -e 'import Prelude' -e 'import Data.Char' -e 'interact (fmap (chr . read) . words)' < p)"
-    curl -u gelisam:"$PASSWORD" -X GET -H "Content-Type: application/json" \
-      "${JIRA_URL}/sr/jira.issueviews:searchrequest-csv-all-fields/temp/SearchRequest.csv?jqlQuery=%22Epic+Link%22+%3D+$EPIC&delimiter=," > "$BASENAME.csv"
-  else
-    mv ~/Downloads/Jira*.csv "$BASENAME.csv" 2> /dev/null || true
-  fi
+  #if [ -f p ]; then
+  #  JIRA_URL="$(cat jira_url)"
+  #  PASSWORD="$(ghc -e 'import Prelude' -e 'import Data.Char' -e 'interact (fmap (chr . read) . words)' < p)"
+  #  curl -u gelisam:"$PASSWORD" -X GET -H "Content-Type: application/json" \
+  #    "${JIRA_URL}/sr/jira.issueviews:searchrequest-csv-all-fields/temp/SearchRequest.csv?jqlQuery=%22Epic+Link%22+%3D+$EPIC&delimiter=," > "$BASENAME.csv"
+  #else
+  #  mv ~/Downloads/Jira*.csv "$BASENAME.csv" 2> /dev/null || true
+  #fi
 
-  jira-dependencies "$BASENAME.csv" > "auto.dot"
-  if [ "$1" ]; then
-    cat "auto.dot" | dot-reverse | dot-closure "$@" | dot-reverse > "$BASENAME.dot"
-  else
-    cat "auto.dot" > "$BASENAME.dot"
-  fi
+  #jira-dependencies "$BASENAME.csv" > "auto.dot"
+  #if [ "$1" ]; then
+  #  cat "auto.dot" | dot-reverse | dot-closure "$@" | dot-reverse > "$BASENAME.dot"
+  #else
+  #  cat "auto.dot" > "$BASENAME.dot"
+  #fi
   dot -Tpng -Granksep=1 "$BASENAME.dot" | pngtopnm > "auto-top.pnm"
 
   if [ -f "calendar.png" ]; then
     LEFT_PX="3"
-    LEFT_DATE="2020-12-03"
+    LEFT_DATE="2024-05-01"
     LEFT_YYYY="$(echo "$LEFT_DATE" | cut -d'-' -f1)"
     LEFT_MM="$(echo "$LEFT_DATE" | cut -d'-' -f2)"
     LEFT_DD="$(echo "$LEFT_DATE" | cut -d'-' -f3)"
     LEFT_TIMESTAMP="$(/bin/date -j "${LEFT_MM}${LEFT_DD}0000${LEFT_YYYY}" +"%s")"
     RIGHT_PX="1635"
-    RIGHT_DATE="2021-03-10"
+    RIGHT_DATE="2024-05-18"
     RIGHT_YYYY="$(echo "$RIGHT_DATE" | cut -d'-' -f1)"
     RIGHT_MM="$(echo "$RIGHT_DATE" | cut -d'-' -f2)"
     RIGHT_DD="$(echo "$RIGHT_DATE" | cut -d'-' -f3)"
