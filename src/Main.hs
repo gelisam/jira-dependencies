@@ -291,8 +291,8 @@ findEdgesInCycles allGraphNodes adjMap =
             (Map.findWithDefault Set.empty u adjMap)
       in (foundCycleEdgesInNeighbors, finalVisited)
 
-markCycleEdges :: ([GraphNode], [GraphEdge]) -> ([GraphNode], [GraphEdge])
-markCycleEdges (graphNodes, graphEdges) = (graphNodes, finalGraphEdges)
+markCycleEdges :: ([GraphNode], [GraphEdge]) -> (Bool, [GraphNode], [GraphEdge])
+markCycleEdges (graphNodes, graphEdges) = (foundCycles, graphNodes, finalGraphEdges)
   where
     -- Build adjacency list and get all nodes for cycle detection
     adjMap :: Map IssueId (Set IssueId)
@@ -315,6 +315,9 @@ markCycleEdges (graphNodes, graphEdges) = (graphNodes, finalGraphEdges)
 
     edgesInCycles :: Set (IssueId, IssueId)
     edgesInCycles = findEdgesInCycles comprehensiveNodesSet adjMap
+
+    foundCycles :: Bool
+    foundCycles = not $ Set.null edgesInCycles
 
     -- Update attributes for edges in cycles
     finalGraphEdges :: [GraphEdge]
@@ -405,23 +408,27 @@ toDotNode (GraphNode {..}) = mkDotNode gnId attrs
             , Dot.Attribute "penwidth" (fromString (show gnPenWidth))
             ]
 
-toDotEdge :: GraphEdge -> Dot.EdgeStatement
-toDotEdge (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
+toDotEdge :: Bool -> GraphEdge -> Dot.EdgeStatement
+toDotEdge True (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
   where
     attrs :: [Dot.Attribute]
     attrs = (if geIsRanking then [Dot.Attribute "style" (fromString "dotted")] else [])
          ++ (if geInCycle then [Dot.Attribute "color" (fromString "red")] else [])
+toDotEdge False (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
+  where
+    attrs :: [Dot.Attribute]
+    attrs = [Dot.Attribute "style" (fromString "invis")]
 
 
-toDotGraph :: [GraphNode] -> [GraphEdge] -> Dot.DotGraph
-toDotGraph graphNodes graphEdges
+toDotGraph :: Bool -> [GraphNode] -> [GraphEdge] -> Dot.DotGraph
+toDotGraph displayRankingEdges graphNodes graphEdges
   = mkDotGraph dotNodes dotEdges
   where
     dotNodes :: [Dot.NodeStatement]
     dotNodes = fmap toDotNode graphNodes
 
     dotEdges :: [Dot.EdgeStatement]
-    dotEdges = fmap toDotEdge graphEdges
+    dotEdges = fmap (toDotEdge displayRankingEdges) graphEdges
 
 ----------------------------------------
 
@@ -434,8 +441,8 @@ main = do
       let (rankingEdges, issuesMap) = extractRankingAndMap orderedIssues
       let issuesMap' = addDummyNodesAndEdges issuesMap
       let (graphNodes, graphEdges) = toGraphNodesAndEdges issuesMap' rankingEdges
-      let (graphNodes', graphEdges') = markCycleEdges (graphNodes, graphEdges)
-      let dotGraph = toDotGraph graphNodes' graphEdges'
+      let (foundCycles, graphNodes', graphEdges') = markCycleEdges (graphNodes, graphEdges)
+      let dotGraph = toDotGraph foundCycles graphNodes' graphEdges'
       printDotGraph dotGraph
     _ -> do
       progName <- getProgName
