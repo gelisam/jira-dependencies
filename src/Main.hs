@@ -3,7 +3,7 @@ module Main where
 
 import Data.ByteString.Lazy (ByteString)
 import Data.Containers.ListUtils (nubOrd)
-import Data.Foldable (for_, toList)
+import Data.Foldable (for_, toList, foldl') -- Added foldl'
 import Data.Map (Map, (!))
 import Data.Set (Set)
 import Data.Maybe (fromJust, fromMaybe)
@@ -236,6 +236,86 @@ toGraphNode (issueId, Issue {..}) = mkLabelledGraphNode issueId label color styl
         -> 3.0
       _ -> 1.0
 
+----------------------------------------
+
+-- Cycle Detection Logic
+
+-- Helper to reconstruct cycle edges given a back-edge u -> v (v is an ancestor)
+reconstructCycleFromBackEdge :: IssueId -> IssueId -> Map IssueId IssueId -> Set (IssueId, IssueId)
+reconstructCycleFromBackEdge u v parentMap =
+  let backEdge = Set.singleton (u,v)
+      pathEdges = go u Set.empty
+  in Set.union backEdge pathEdges
+  where
+    go curr ancestorAccEdges
+      | curr == v = ancestorAccEdges -- Reached the start of the cycle path (the ancestor v)
+      | otherwise =
+          case Map.lookup curr parentMap of
+            Nothing -> ancestorAccEdges -- Should not happen if v is an ancestor of curr in a connected path
+            Just p  -> go p (Set.insert (p, curr) ancestorAccEdges)
+
+findEdgesInCycles :: Set IssueId -> Map IssueId (Set IssueId) -> Set (IssueId, IssueId)
+findEdgesInCycles allGraphNodes adjMap =
+  fst $ Set.foldl' visitStartNode (Set.empty, Set.empty) allGraphNodes
+  where
+    -- visitStartNode is called for each node in the graph to ensure all components are visited.
+    -- State: (accumulated cycle edges, globally visited nodes)
+    visitStartNode (accCycleEdges, visitedGlobally) node
+      | Set.member node visitedGlobally = (accCycleEdges, visitedGlobally)
+      | otherwise =
+          let (newCycleEdges, visitedInComponent) = dfs node Set.empty visitedGlobally Map.empty
+          in (Set.union accCycleEdges newCycleEdges, Set.union visitedGlobally visitedInComponent)
+
+    -- dfs :: current_node -> visiting_set (recursion stack) -> visited_globally_set -> parent_map -> (Set (IssueId, IssueId), Set IssueId)
+    -- Returns: (edges found in cycles during this DFS path, all nodes visited starting from this DFS root)
+    dfs u visiting visitedGlobally parents =
+      let visiting' = Set.insert u visiting
+          visitedGlobally' = Set.insert u visitedGlobally
+
+          (foundCycleEdgesInNeighbors, finalVisited) = foldl'
+            (\(accCycles, visitedAcc) v ->
+              if Set.member v visiting' then -- Cycle detected (back edge u -> v)
+                let cycleEdges = reconstructCycleFromBackEdge u v parents
+                in (Set.union accCycles cycleEdges, visitedAcc)
+              else if Set.notMember v visitedGlobally' then
+                let (newCyclesFromV, visitedByV) = dfs v visiting' visitedAcc (Map.insert v u parents)
+                in (Set.union accCycles newCyclesFromV, visitedByV) -- Important: visitedByV contains all nodes visited from v's DFS
+              else
+                (accCycles, visitedAcc) -- v already visited and not in current path
+            )
+            (Set.empty, visitedGlobally') -- Initial accumulator for fold over neighbors
+            (Map.findWithDefault Set.empty u adjMap)
+      in (foundCycleEdgesInNeighbors, finalVisited)
+
+markCycleEdges :: ([GraphNode], [GraphEdge]) -> ([GraphNode], [GraphEdge])
+markCycleEdges (graphNodes, graphEdges) = (graphNodes, finalGraphEdges)
+  where
+    -- Build adjacency list and get all nodes for cycle detection
+    adjMap :: Map IssueId (Set IssueId)
+    adjMap = Map.fromListWith Set.union $ do
+        GraphEdge s t _ <- graphEdges
+        pure (s, Set.singleton t)
+
+    allNodesFromGraphEdges :: Set IssueId
+    allNodesFromGraphEdges = Set.fromList $ concatMap (\(GraphEdge s t _) -> [s, t]) graphEdges
+
+    allNodesFromGraphNodes :: Set IssueId
+    allNodesFromGraphNodes = Set.fromList $ map gnId graphNodes
+
+    comprehensiveNodesSet :: Set IssueId
+    comprehensiveNodesSet = Set.union allNodesFromGraphEdges allNodesFromGraphNodes
+
+    edgesInCycles :: Set (IssueId, IssueId)
+    edgesInCycles = findEdgesInCycles comprehensiveNodesSet adjMap
+
+    -- Update attributes for edges in cycles
+    finalGraphEdges :: [GraphEdge]
+    finalGraphEdges = map (\edge@(GraphEdge s t attrs) ->
+                              if Set.member (s,t) edgesInCycles
+                              then edge { geAttributes = Dot.Attribute "color" (fromString "red") : attrs }
+                              else edge
+                          ) graphEdges
+
 toGraphNodesAndEdges :: Map IssueId Issue -> [(IssueId, IssueId)] -> ([GraphNode], [GraphEdge])
 toGraphNodesAndEdges issues rankingPairs = (graphNodes, allGraphEdges)
   where
@@ -253,7 +333,7 @@ toGraphNodesAndEdges issues rankingPairs = (graphNodes, allGraphEdges)
 
     rankingGraphEdges :: [GraphEdge]
     rankingGraphEdges = fmap
-        (\ (id1, id2) ->
+        (\(id1, id2) ->
             GraphEdge id1 id2 [Dot.Attribute "style" (fromString "dotted")]
         )
         rankingPairs
@@ -324,7 +404,8 @@ main = do
       let (rankingEdges, issuesMap) = extractRankingAndMap orderedIssues
       let issuesMap' = addDummyNodesAndEdges issuesMap
       let (graphNodes, graphEdges) = toGraphNodesAndEdges issuesMap' rankingEdges
-      let dotGraph = toDotGraph graphNodes graphEdges
+      let (graphNodes', graphEdges') = markCycleEdges (graphNodes, graphEdges)
+      let dotGraph = toDotGraph graphNodes' graphEdges'
       printDotGraph dotGraph
     _ -> do
       progName <- getProgName
