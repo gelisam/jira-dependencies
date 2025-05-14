@@ -20,6 +20,9 @@ import qualified Data.Text.IO as Text
 import qualified Data.Vector as Vector
 import qualified Dot
 
+----------------------------------------
+
+-- Parse the CSV file into a list of issues.
 
 type IssueId = String
 
@@ -97,46 +100,76 @@ extractRankingAndMap orderedIssues = (rankingEdges, issuesMap)
                    then []
                    else zip issueIds (tail issueIds)
 
+----------------------------------------
 
--- Simpler API for creating a DotGraph
+-- Add dummy nodes to the graph to make it easier to see the tasks which are
+-- ready to start. The dummy nodes are added above the tasks which are
+-- unblocked and have the same color as the "Done" tasks, so that all the issues
+-- which are ready to start are at the boundary between the "Done" tasks and the
+-- non-done tasks.
 
-mkNodeId :: String -> Dot.NodeId
-mkNodeId = fromString
+addDummyEdge :: (IssueId, IssueId) -> Map IssueId Issue -> Map IssueId Issue
+addDummyEdge (from, to) = Map.adjust (\issue -> issue {blocks = to : blocks issue}) from
 
-mkNode :: String -> Dot.NodeStatement
-mkNode name = Dot.NodeStatement (mkNodeId name) []
+-- The tasks which are ready to start are those whose blocking tasks are
+-- completed (marked in green). This makes it difficult to see the tasks with
+-- in-degree zero, which are ready to be started but do not have green above
+-- them. So let's add a dummy green node above them.
+addDummyNodesAndEdges :: Map IssueId Issue -> Map IssueId Issue
+addDummyNodesAndEdges g
+    = dummyNodes
+   <> foldr addDummyEdge g dummyEdges
+  where
+    potentialNodes :: Map IssueId Issue
+    potentialNodes = Map.filter (\(Issue {..}) -> status `elem` [Nothing, Just "ToDo"]) g
 
-mkLabelledNode :: String -> String -> String -> String -> Double -> Dot.NodeStatement
-mkLabelledNode name label color style penwidth
-  = Dot.NodeStatement (mkNodeId name)
-      [ Dot.Attribute "label" (fromString label)
-      , Dot.Attribute "style" (fromString ("filled," ++ style))
-      , Dot.Attribute "fillcolor" (fromString color)
-      , Dot.Attribute "penwidth" (fromString (show penwidth))
-      ]
+    blockedNodes :: Set IssueId
+    blockedNodes = Set.unions $ fmap (Set.fromList . blocks) g
 
-mkEdge :: String -> String -> [Dot.Attribute] -> Dot.EdgeStatement
-mkEdge name1 name2 attrs = Dot.EdgeStatement
-                       (Dot.ListTwo
-                         (Dot.EdgeNode (mkNodeId name1))
-                         (Dot.EdgeNode (mkNodeId name2))
-                         [])
-                         attrs
+    initialNodes :: Map IssueId Issue
+    initialNodes = potentialNodes `Map.withoutKeys` blockedNodes
 
-mkGraph :: [Dot.NodeStatement] -> [Dot.EdgeStatement] -> Dot.DotGraph
-mkGraph nodes edges = Dot.DotGraph
-                        Dot.Strict
-                        Dot.Directed
-                        Nothing
-                        ( (Dot.StatementNode <$> nodes)
-                       ++ (Dot.StatementEdge <$> edges)
-                        )
+    mkDummyId :: IssueId -> IssueId
+    mkDummyId = ("before-" ++)
 
-printGraph :: Dot.DotGraph -> IO ()
-printGraph = Text.putStrLn . Dot.encode
+    mkDummyNode :: (IssueId, Issue) -> (IssueId, Issue)
+    mkDummyNode (issueId, Issue {..})
+      = ( mkDummyId issueId
+        , Issue
+          { summary     = Nothing
+          , blocks      = [issueId]
+          , storyPoints = Nothing
+          , status      = Just "Done"
+          , issueType   = Nothing
+          , labels      = labels
+          , dummy       = True
+          }
+        )
 
+    mkDummyEdge :: IssueId -> (IssueId, IssueId)
+    mkDummyEdge issueId = (mkDummyId issueId, issueId)
 
--- Convert Issues to a DotGraph
+    dummyNodes :: Map IssueId Issue
+    dummyNodes = Map.fromList $ fmap mkDummyNode $ Map.toList initialNodes
+
+    dummyEdges :: [(IssueId, IssueId)]
+    dummyEdges = fmap mkDummyEdge $ Map.keys initialNodes
+
+----------------------------------------
+
+-- Convert Issues to Graph{Nodes,Edges}
+
+data GraphNode = GraphNode
+  { gnId         :: IssueId
+  , gnAttributes :: [Dot.Attribute]
+  } deriving (Show)
+
+data GraphEdge = GraphEdge
+  { geSource     :: IssueId
+  , geTarget     :: IssueId
+  , geAttributes :: [Dot.Attribute]
+  } deriving (Show)
+
 
 showDouble :: Double -> String
 showDouble x
@@ -145,8 +178,17 @@ showDouble x
   | otherwise
     = show x
 
-toNode :: (IssueId, Issue) -> Dot.NodeStatement
-toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
+mkLabelledGraphNode :: IssueId -> String -> String -> String -> Double -> GraphNode
+mkLabelledGraphNode name label color style penwidth
+  = GraphNode name
+      [ Dot.Attribute "label" (fromString label)
+      , Dot.Attribute "style" (fromString ("filled," ++ style))
+      , Dot.Attribute "fillcolor" (fromString color)
+      , Dot.Attribute "penwidth" (fromString (show penwidth))
+      ]
+
+toGraphNode :: (IssueId, Issue) -> GraphNode
+toGraphNode (issueId, Issue {..}) = mkLabelledGraphNode issueId label color style penwidth
   where
     label
       | dummy
@@ -194,72 +236,84 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
         -> 3.0
       _ -> 1.0
 
-mkDependencyEdge :: (IssueId, IssueId) -> Dot.EdgeStatement
-mkDependencyEdge (id1, id2)
-  = mkEdge id1 id2 []
-
-mkRankingEdge :: (IssueId, IssueId) -> Dot.EdgeStatement
-mkRankingEdge (id1, id2)
-  = mkEdge id1 id2 [Dot.Attribute "style" (fromString "dotted")]
-
-toDependencyEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
-toDependencyEdges (issue1, Issue {..})
-  = [mkDependencyEdge (issue1, issue2) | issue2 <- blocks]
-
-toGraph :: Map IssueId Issue -> [(IssueId, IssueId)] -> Dot.DotGraph
-toGraph issues rankingPairs = mkGraph nodes allEdges
+toGraphNodesAndEdges :: Map IssueId Issue -> [(IssueId, IssueId)] -> ([GraphNode], [GraphEdge])
+toGraphNodesAndEdges issues rankingPairs = (graphNodes, allGraphEdges)
   where
-    nodes = fmap toNode (Map.toList issues)
-    dependencyEdges = concatMap toDependencyEdges (Map.toList issues)
-    rankingEdges = fmap mkRankingEdge rankingPairs
-    allEdges = dependencyEdges ++ rankingEdges
+    graphNodes :: [GraphNode]
+    graphNodes = fmap toGraphNode (Map.toList issues)
 
-
-addEdge :: (IssueId, IssueId) -> Map IssueId Issue -> Map IssueId Issue
-addEdge (from, to) = Map.adjust (\issue -> issue {blocks = to : blocks issue}) from
-
--- The tasks which are ready to start are those whose blocking tasks are
--- completed (marked in green). This makes it difficult to see the tasks with
--- in-degree zero, which are ready to be started but do not have green above
--- them. So let's add a dummy green node above them.
-markInitialNodes :: Map IssueId Issue -> Map IssueId Issue
-markInitialNodes g = dummyNodes
-                  <> foldr addEdge g dummyEdges
-  where
-    potentialNodes :: Map IssueId Issue
-    potentialNodes = Map.filter (\(Issue {..}) -> status `elem` [Nothing, Just "ToDo"]) g
-
-    blockedNodes :: Set IssueId
-    blockedNodes = Set.unions $ fmap (Set.fromList . blocks) g
-
-    initialNodes :: Map IssueId Issue
-    initialNodes = potentialNodes `Map.withoutKeys` blockedNodes
-
-    mkDummyId :: IssueId -> IssueId
-    mkDummyId = ("before-" ++)
-
-    mkDummyNode :: (IssueId, Issue) -> (IssueId, Issue)
-    mkDummyNode (issueId, Issue {..})
-      = ( mkDummyId issueId
-        , Issue
-          { summary     = Nothing
-          , blocks      = [issueId]
-          , storyPoints = Nothing
-          , status      = Just "Done"
-          , issueType   = Nothing
-          , labels      = labels
-          , dummy       = True
-          }
+    dependencyGraphEdges :: [GraphEdge]
+    dependencyGraphEdges = concatMap
+        (\ (issueId, issueDetails) ->
+            [ GraphEdge issueId blockedId []
+            | blockedId <- blocks issueDetails
+            ]
         )
+        (Map.toList issues)
 
-    mkDummyEdge :: IssueId -> (IssueId, IssueId)
-    mkDummyEdge issueId = (mkDummyId issueId, issueId)
+    rankingGraphEdges :: [GraphEdge]
+    rankingGraphEdges = fmap
+        (\ (id1, id2) ->
+            GraphEdge id1 id2 [Dot.Attribute "style" (fromString "dotted")]
+        )
+        rankingPairs
 
-    dummyNodes :: Map IssueId Issue
-    dummyNodes = Map.fromList $ fmap mkDummyNode $ Map.toList initialNodes
+    allGraphEdges :: [GraphEdge]
+    allGraphEdges = dependencyGraphEdges ++ rankingGraphEdges
 
-    dummyEdges :: [(IssueId, IssueId)]
-    dummyEdges = fmap mkDummyEdge $ Map.keys initialNodes
+----------------------------------------
+
+-- Simpler API for creating a DotGraph
+
+mkNodeId :: String -> Dot.NodeId
+mkNodeId = fromString
+
+mkDotNode :: String -> [Dot.Attribute] -> Dot.NodeStatement
+mkDotNode name attrs = Dot.NodeStatement (mkNodeId name) attrs
+
+mkDotEdge :: String -> String -> [Dot.Attribute] -> Dot.EdgeStatement
+mkDotEdge name1 name2 attrs
+  = Dot.EdgeStatement
+      (Dot.ListTwo
+        (Dot.EdgeNode (mkNodeId name1))
+        (Dot.EdgeNode (mkNodeId name2))
+        [])
+      attrs
+
+mkDotGraph :: [Dot.NodeStatement] -> [Dot.EdgeStatement] -> Dot.DotGraph
+mkDotGraph nodes edges
+  = Dot.DotGraph
+      Dot.Strict
+      Dot.Directed
+      Nothing
+      ( (Dot.StatementNode <$> nodes)
+     ++ (Dot.StatementEdge <$> edges)
+      )
+
+printDotGraph :: Dot.DotGraph -> IO ()
+printDotGraph = Text.putStrLn . Dot.encode
+
+----------------------------------------
+
+-- Convert the Graph{Nodes,Edges} to a DotGraph
+
+toDotGraph :: [GraphNode] -> [GraphEdge] -> Dot.DotGraph
+toDotGraph graphNodes graphEdges
+  = mkDotGraph dotNodes dotEdges
+  where
+    dotNodes :: [Dot.NodeStatement]
+    dotNodes
+      = fmap
+          (\node -> mkDotNode (gnId node) (gnAttributes node))
+          graphNodes
+
+    dotEdges :: [Dot.EdgeStatement]
+    dotEdges
+      = fmap
+          (\edge -> mkDotEdge (geSource edge) (geTarget edge) (geAttributes edge))
+          graphEdges
+
+----------------------------------------
 
 main :: IO ()
 main = do
@@ -268,9 +322,10 @@ main = do
       inputCsv <- ByteString.readFile inputFile
       let orderedIssues = parseIssues inputCsv
       let (rankingEdges, issuesMap) = extractRankingAndMap orderedIssues
-      let finalIssuesMap = markInitialNodes issuesMap
-      let graph = toGraph finalIssuesMap rankingEdges
-      printGraph graph
+      let issuesMap' = addDummyNodesAndEdges issuesMap
+      let (graphNodes, graphEdges) = toGraphNodesAndEdges issuesMap' rankingEdges
+      let dotGraph = toDotGraph graphNodes graphEdges
+      printDotGraph dotGraph
     _ -> do
       progName <- getProgName
       putStrLn $ "usage: " ++ progName ++ " example-input.csv"
