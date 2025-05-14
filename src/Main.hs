@@ -1,4 +1,7 @@
-{-# LANGUAGE RecordWildCards, LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 module Main where
 
 import Data.ByteString.Lazy (ByteString)
@@ -160,14 +163,18 @@ addDummyNodesAndEdges g
 -- Convert Issues to Graph{Nodes,Edges}
 
 data GraphNode = GraphNode
-  { gnId         :: IssueId
-  , gnAttributes :: [Dot.Attribute]
+  { gnId        :: IssueId
+  , gnLabel     :: String
+  , gnStyle     :: String
+  , gnFillColor :: String
+  , gnPenWidth  :: Double
   } deriving (Show)
 
 data GraphEdge = GraphEdge
-  { geSource     :: IssueId
-  , geTarget     :: IssueId
-  , geAttributes :: [Dot.Attribute]
+  { geSource    :: IssueId
+  , geTarget    :: IssueId
+  , geIsRanking :: Bool
+  , geInCycle   :: Bool
   } deriving (Show)
 
 
@@ -178,17 +185,14 @@ showDouble x
   | otherwise
     = show x
 
-mkLabelledGraphNode :: IssueId -> String -> String -> String -> Double -> GraphNode
-mkLabelledGraphNode name label color style penwidth
-  = GraphNode name
-      [ Dot.Attribute "label" (fromString label)
-      , Dot.Attribute "style" (fromString ("filled," ++ style))
-      , Dot.Attribute "fillcolor" (fromString color)
-      , Dot.Attribute "penwidth" (fromString (show penwidth))
-      ]
-
 toGraphNode :: (IssueId, Issue) -> GraphNode
-toGraphNode (issueId, Issue {..}) = mkLabelledGraphNode issueId label color style penwidth
+toGraphNode (issueId, Issue {..}) = GraphNode
+  { gnId        = issueId
+  , gnLabel     = label
+  , gnStyle     = style
+  , gnFillColor = color
+  , gnPenWidth  = penwidth
+  }
   where
     label
       | dummy
@@ -293,11 +297,15 @@ markCycleEdges (graphNodes, graphEdges) = (graphNodes, finalGraphEdges)
     -- Build adjacency list and get all nodes for cycle detection
     adjMap :: Map IssueId (Set IssueId)
     adjMap = Map.fromListWith Set.union $ do
-        GraphEdge s t _ <- graphEdges
-        pure (s, Set.singleton t)
+        GraphEdge {geSource, geTarget} <- graphEdges
+        pure (geSource, Set.singleton geTarget)
 
     allNodesFromGraphEdges :: Set IssueId
-    allNodesFromGraphEdges = Set.fromList $ concatMap (\(GraphEdge s t _) -> [s, t]) graphEdges
+    allNodesFromGraphEdges
+      = Set.fromList
+      $ concatMap
+          (\(GraphEdge {geSource, geTarget}) -> [geSource, geTarget])
+          graphEdges
 
     allNodesFromGraphNodes :: Set IssueId
     allNodesFromGraphNodes = Set.fromList $ map gnId graphNodes
@@ -310,9 +318,9 @@ markCycleEdges (graphNodes, graphEdges) = (graphNodes, finalGraphEdges)
 
     -- Update attributes for edges in cycles
     finalGraphEdges :: [GraphEdge]
-    finalGraphEdges = map (\edge@(GraphEdge s t attrs) ->
-                              if Set.member (s,t) edgesInCycles
-                              then edge { geAttributes = Dot.Attribute "color" (fromString "red") : attrs }
+    finalGraphEdges = map (\edge@(GraphEdge {geSource, geTarget}) ->
+                              if Set.member (geSource, geTarget) edgesInCycles
+                              then edge { geInCycle = True }
                               else edge
                           ) graphEdges
 
@@ -325,7 +333,12 @@ toGraphNodesAndEdges issues rankingPairs = (graphNodes, allGraphEdges)
     dependencyGraphEdges :: [GraphEdge]
     dependencyGraphEdges = concatMap
         (\ (issueId, issueDetails) ->
-            [ GraphEdge issueId blockedId []
+            [ GraphEdge
+                { geSource    = issueId
+                , geTarget    = blockedId
+                , geIsRanking = False
+                , geInCycle   = False
+                }
             | blockedId <- blocks issueDetails
             ]
         )
@@ -334,7 +347,12 @@ toGraphNodesAndEdges issues rankingPairs = (graphNodes, allGraphEdges)
     rankingGraphEdges :: [GraphEdge]
     rankingGraphEdges = fmap
         (\(id1, id2) ->
-            GraphEdge id1 id2 [Dot.Attribute "style" (fromString "dotted")]
+            GraphEdge
+              { geSource    = id1
+              , geTarget    = id2
+              , geIsRanking = True
+              , geInCycle   = False
+              }
         )
         rankingPairs
 
@@ -377,21 +395,33 @@ printDotGraph = Text.putStrLn . Dot.encode
 
 -- Convert the Graph{Nodes,Edges} to a DotGraph
 
+toDotNode :: GraphNode -> Dot.NodeStatement
+toDotNode (GraphNode {..}) = mkDotNode gnId attrs
+  where
+    attrs :: [Dot.Attribute]
+    attrs = [ Dot.Attribute "label" (fromString gnLabel)
+            , Dot.Attribute "style" (fromString ("filled," ++ gnStyle))
+            , Dot.Attribute "fillcolor" (fromString gnFillColor)
+            , Dot.Attribute "penwidth" (fromString (show gnPenWidth))
+            ]
+
+toDotEdge :: GraphEdge -> Dot.EdgeStatement
+toDotEdge (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
+  where
+    attrs :: [Dot.Attribute]
+    attrs = (if geIsRanking then [Dot.Attribute "style" (fromString "dotted")] else [])
+         ++ (if geInCycle then [Dot.Attribute "color" (fromString "red")] else [])
+
+
 toDotGraph :: [GraphNode] -> [GraphEdge] -> Dot.DotGraph
 toDotGraph graphNodes graphEdges
   = mkDotGraph dotNodes dotEdges
   where
     dotNodes :: [Dot.NodeStatement]
-    dotNodes
-      = fmap
-          (\node -> mkDotNode (gnId node) (gnAttributes node))
-          graphNodes
+    dotNodes = fmap toDotNode graphNodes
 
     dotEdges :: [Dot.EdgeStatement]
-    dotEdges
-      = fmap
-          (\edge -> mkDotEdge (geSource edge) (geTarget edge) (geAttributes edge))
-          graphEdges
+    dotEdges = fmap toDotEdge graphEdges
 
 ----------------------------------------
 
