@@ -37,9 +37,8 @@ data Issue = Issue
 -- partial if the input not valid csv or doesn't contain the required field "Issue key".
 -- fields "Summary", "Outward issue link (Blocks)" and "Custom field (Story Points)" are
 -- treated specially, but are not mandatory.
-parseIssues :: ByteString -> Map IssueId Issue
-parseIssues inputCsv = Map.fromList
-                     . fmap parseAnnotatedIssue
+parseIssues :: ByteString -> [(IssueId, Issue)]
+parseIssues inputCsv = fmap parseAnnotatedIssue
                      $ annotatedRows
   where
     annotatedRows :: [[(String, String)]]
@@ -84,6 +83,19 @@ parseIssues inputCsv = Map.fromList
     getLabels :: [(String, String)] -> [String]
     getLabels = fmap snd
               . filter ((== "Labels") . fst)
+
+
+-- The ranking is a list of invisible edges which cause the nodes to be
+-- displayed in rank order from top to bottom.
+extractRankingAndMap :: [(IssueId, Issue)] -> ([(IssueId, IssueId)], Map IssueId Issue)
+extractRankingAndMap orderedIssues = (rankingEdges, issuesMap)
+  where
+    issuesMap = Map.fromList orderedIssues
+    issueIds = fmap fst orderedIssues
+    -- Create pairs of (prevIssue, currentIssue) for ranking
+    rankingEdges = if length issueIds < 2
+                   then []
+                   else zip issueIds (tail issueIds)
 
 
 -- Simpler API for creating a DotGraph
@@ -185,11 +197,17 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
 toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
 toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
 
-toGraph :: Map IssueId Issue -> Dot.DotGraph
-toGraph issues = mkGraph nodes edges
+toGraph :: Map IssueId Issue -> [(IssueId, IssueId)] -> Dot.DotGraph
+toGraph issues rankingPairs = mkGraph nodes allEdges
   where
     nodes = fmap toNode (Map.toList issues)
-    edges = concatMap toEdges (Map.toList issues)
+    dependencyEdges = concatMap toEdges (Map.toList issues)
+    rankingEdges = fmap mkRankingEdge rankingPairs
+      where
+        mkRankingEdge (id1, id2) = Dot.EdgeStatement
+                                     (Dot.ListTwo (Dot.EdgeNode (mkNodeId id1)) (Dot.EdgeNode (mkNodeId id2)) [])
+                                     [Dot.Attribute "style" (fromString "invis")]
+    allEdges = dependencyEdges ++ rankingEdges
 
 
 addEdge :: (IssueId, IssueId) -> Map IssueId Issue -> Map IssueId Issue
@@ -242,8 +260,12 @@ main :: IO ()
 main = do
   getArgs >>= \case
     [inputFile] -> do
-      issues <- parseIssues <$> ByteString.readFile inputFile
-      printGraph $ toGraph $ markInitialNodes issues
+      inputCsv <- ByteString.readFile inputFile
+      let orderedIssues = parseIssues inputCsv
+      let (rankingEdges, issuesMap) = extractRankingAndMap orderedIssues
+      let finalIssuesMap = markInitialNodes issuesMap
+      let graph = toGraph finalIssuesMap rankingEdges
+      printGraph graph
     _ -> do
       progName <- getProgName
       putStrLn $ "usage: " ++ progName ++ " example-input.csv"
