@@ -115,13 +115,13 @@ mkLabelledNode name label color style penwidth
       , Dot.Attribute "penwidth" (fromString (show penwidth))
       ]
 
-mkEdge :: String -> String -> Dot.EdgeStatement
-mkEdge name1 name2 = Dot.EdgeStatement
+mkEdge :: String -> String -> [Dot.Attribute] -> Dot.EdgeStatement
+mkEdge name1 name2 attrs = Dot.EdgeStatement
                        (Dot.ListTwo
                          (Dot.EdgeNode (mkNodeId name1))
                          (Dot.EdgeNode (mkNodeId name2))
                          [])
-                         []
+                         attrs
 
 mkGraph :: [Dot.NodeStatement] -> [Dot.EdgeStatement] -> Dot.DotGraph
 mkGraph nodes edges = Dot.DotGraph
@@ -194,19 +194,24 @@ toNode (issueId, Issue {..}) = mkLabelledNode issueId label color style penwidth
         -> 3.0
       _ -> 1.0
 
-toEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
-toEdges (issue1, Issue {..}) = [mkEdge issue1 issue2 | issue2 <- blocks]
+mkDependencyEdge :: (IssueId, IssueId) -> Dot.EdgeStatement
+mkDependencyEdge (id1, id2)
+  = mkEdge id1 id2 []
+
+mkRankingEdge :: (IssueId, IssueId) -> Dot.EdgeStatement
+mkRankingEdge (id1, id2)
+  = mkEdge id1 id2 [Dot.Attribute "style" (fromString "dotted")]
+
+toDependencyEdges :: (IssueId, Issue) -> [Dot.EdgeStatement]
+toDependencyEdges (issue1, Issue {..})
+  = [mkDependencyEdge (issue1, issue2) | issue2 <- blocks]
 
 toGraph :: Map IssueId Issue -> [(IssueId, IssueId)] -> Dot.DotGraph
 toGraph issues rankingPairs = mkGraph nodes allEdges
   where
     nodes = fmap toNode (Map.toList issues)
-    dependencyEdges = concatMap toEdges (Map.toList issues)
+    dependencyEdges = concatMap toDependencyEdges (Map.toList issues)
     rankingEdges = fmap mkRankingEdge rankingPairs
-      where
-        mkRankingEdge (id1, id2) = Dot.EdgeStatement
-                                     (Dot.ListTwo (Dot.EdgeNode (mkNodeId id1)) (Dot.EdgeNode (mkNodeId id2)) [])
-                                     [Dot.Attribute "style" (fromString "invis")]
     allEdges = dependencyEdges ++ rankingEdges
 
 
