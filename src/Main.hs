@@ -90,6 +90,8 @@ parseIssues inputCsv = fmap parseAnnotatedIssue
     getLabels = fmap snd
               . filter ((== "Labels") . fst)
 
+extractMap :: [(IssueId, Issue)] -> Map IssueId Issue
+extractMap orderedIssues = Map.fromList orderedIssues
 
 -- The ranking is a list of invisible edges which cause the nodes to be
 -- displayed in rank order from top to bottom.
@@ -417,7 +419,7 @@ toDotEdge True (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
 toDotEdge False (GraphEdge {..}) = mkDotEdge geSource geTarget attrs
   where
     attrs :: [Dot.Attribute]
-    attrs = [Dot.Attribute "style" (fromString "invis")]
+    attrs = if geIsRanking then [Dot.Attribute "style" (fromString "invis")] else []
 
 
 toDotGraph :: Bool -> [GraphNode] -> [GraphEdge] -> Dot.DotGraph
@@ -435,7 +437,7 @@ toDotGraph displayRankingEdges graphNodes graphEdges
 main :: IO ()
 main = do
   getArgs >>= \case
-    [inputFile] -> do
+    ["--rank", inputFile] -> do
       inputCsv <- ByteString.readFile inputFile
       let orderedIssues = parseIssues inputCsv
       let (rankingEdges, issuesMap) = extractRankingAndMap orderedIssues
@@ -444,13 +446,23 @@ main = do
       let (foundCycles, graphNodes', graphEdges') = markCycleEdges (graphNodes, graphEdges)
       let dotGraph = toDotGraph foundCycles graphNodes' graphEdges'
       printDotGraph dotGraph
+    [inputFile] -> do
+      inputCsv <- ByteString.readFile inputFile
+      let orderedIssues = parseIssues inputCsv
+      let issuesMap = extractMap orderedIssues
+      let issuesMap' = addDummyNodesAndEdges issuesMap
+      let (graphNodes, graphEdges) = toGraphNodesAndEdges issuesMap' []
+      let dotGraph = toDotGraph True graphNodes graphEdges
+      printDotGraph dotGraph
     _ -> do
       progName <- getProgName
-      putStrLn $ "usage: " ++ progName ++ " example-input.csv"
+      putStrLn $ "usage: [--rank] " ++ progName ++ " example-input.csv"
       putStrLn ""
       putStrLn "Select the issues you are interested in and open them in JIRA's issue navigator."
       putStrLn "Enable the 'Key', 'Linked Issues' and 'Story Points' columns."
       putStrLn "Export to csv, using comma as the delimiter."
       putStrLn "Run this program on the resulting csv file, and an ASCII gantt chart will"
       putStrLn "be printed to illustrate the dependencies between all the tasks."
+      putStrLn ""
+      putStrLn "The --rank option will order the tasks in the graph according to their rank."
       exitFailure
