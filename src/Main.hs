@@ -386,7 +386,7 @@ mkDotEdge name1 name2 attrs
 mkDotGraph :: [Dot.NodeStatement] -> [Dot.EdgeStatement] -> Dot.DotGraph
 mkDotGraph nodes edges
   = Dot.DotGraph
-      Dot.Strict
+      Dot.NonStrict
       Dot.Directed
       Nothing
       ( (Dot.StatementNode <$> nodes)
