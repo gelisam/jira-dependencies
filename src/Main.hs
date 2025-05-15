@@ -226,6 +226,8 @@ toGraphNode (issueId, Issue {..}) = GraphNode
         -> "white"
       Just "ToDo"
         -> "white"
+      Just "Approved"
+        -> "darkolivegreen1"
       Just "Done"
         -> "darkolivegreen1"
       Just "Won't Fix"
